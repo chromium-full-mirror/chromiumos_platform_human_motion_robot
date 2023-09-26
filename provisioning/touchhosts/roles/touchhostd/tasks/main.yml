@@ -1,0 +1,60 @@
+# Copyright 2023 The ChromiumOS Authors
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+# Tasks for initializing HMR Touch Hosts.
+- name: Add user '{{ operating_user }}' under '{{ operating_user_group }}' group
+  ansible.builtin.user:
+    name: "{{ operating_user }}"
+    comment: "{{ operating_user }} runs touchHostD.service and touchHostD API"
+    group: "{{ operating_user_group }}"
+
+- name: Copy TouchHostD API source code to TouchHost
+  tags: TouchHostD
+  ansible.builtin.copy:
+    src: TouchHostD
+    dest: "{{ TouchHostD_Directory }}"
+    owner: "{{ operating_user }}"
+    group: "{{ operating_user_group }}"
+    mode: 0644
+
+- name: Copy TouchHostD API service unit file
+  tags: start_on_boot,systemD
+  ansible.builtin.template:
+    src: configs/touchHostD.service.j2
+    dest: /etc/systemd/system/touchHostD.service
+    owner: "{{ operating_user }}"
+    group: "{{ operating_user_group }}"
+    mode: 0644
+
+- name: Configure systemD to start TouchHostD API in boot sequence
+  tags: systemD,TouchHostD
+  ansible.builtin.systemd:
+    daemon_reload: true
+    name: touchHostD.service
+    enabled: true
+    masked: no
+
+- name: Make sure TouchHostD API is running
+  tags: systemD,TouchHostD
+  ansible.builtin.systemd:
+    name: touchHostD.service
+    # restarted instead of started to take care of
+    # the case where we are updating the service file
+    state: restarted
+
+- name: Verify TouchHostD API is running (XMLRPC POST request)
+  tags: TouchHostD,XMLRPC_Request
+  ansible.builtin.uri:
+    url: "{{ HMR_API_URL }}"
+    method: POST
+    body_format: raw
+    body: >
+      <?xml version="1.0"?>
+      <methodCall>
+          <methodName>TestConnection</methodName>
+      </methodCall>
+  register: XMLRPC_result
+  until: XMLRPC_result.status == 200
+  retries: 5
+  delay: 5

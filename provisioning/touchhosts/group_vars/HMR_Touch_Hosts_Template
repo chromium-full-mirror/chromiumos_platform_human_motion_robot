@@ -1,0 +1,19 @@
+# Copyright 2023 The ChromiumOS Authors
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+# Here are variables related to HMR Touch Hosts.
+
+# TouchHost operator.
+operating_user: touchhostd
+operating_user_group: root
+
+# HMR API connection variables.
+HMR_Host:
+HMR_Port: 8000
+HMR_API_URL: http://0.0.0.0:9992/
+
+# Touch Host process variables.
+Python_Path: /usr/bin/env python
+TouchHostD_Directory: /usr/local
+TouchHostD_SrcPath: "{{ TouchHostD_Directory }}/TouchHostD/main.py"

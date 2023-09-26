@@ -1,0 +1,16 @@
+# Copyright 2023 The ChromiumOS Authors
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+[Unit]
+Description=TouchHostD API
+After=multi-user.target
+
+[Service]
+Type=exec
+User={{ operating_user }}
+Group={{ operating_user_group }}
+ExecStart={{ Python_Path }} {{ TouchHostD_SrcPath }} --hmr_host={{ HMR_Host }} --hmr_port={{ HMR_Port }}
+
+[Install]
+WantedBy=multi-user.target

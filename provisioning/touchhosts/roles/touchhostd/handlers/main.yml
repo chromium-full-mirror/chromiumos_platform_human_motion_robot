@@ -1,0 +1,14 @@
+# Copyright 2023 The ChromiumOS Authors
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+# Handlers, if notified, only runs after all the tasks in a playbook have
+# been completed, including pre_tasks, tasks/roles, post_tasks. Unless we
+# add a task in the playbook to flush them (meta module):
+#
+# - name: Flush Handlers
+#   ansible.builtin.meta: flush_handlers
+#
+# or add:
+# force_handlers = True
+# in ansible.cfg
