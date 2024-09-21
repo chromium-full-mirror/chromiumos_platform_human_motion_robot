@@ -5,9 +5,23 @@
 """Handles capturing stylus events from DUTs to be used with HMR"""
 
 import argparse
+import math
 import threading
 
 import evdev  # pylint: disable=import-error
+
+
+MM_PER_INCH = 25.4
+# Ratio of screen height and width relative to its diagonal length, assuming
+# it is a 16:9 screen.
+SCREEN_SIZE_HEIGHT_RATIO_OF_DIAGONAL = math.sqrt(81 / 337)
+SCREEN_SIZE_WIDTH_RATIO_OF_DIAGONAL = (
+    SCREEN_SIZE_HEIGHT_RATIO_OF_DIAGONAL * 16 / 9
+)
+
+# All reference images used in the stylus drawing tests are scaled to be in mm
+# and taken on a 13.3 inch screen.
+REFERENCE_SCREEN_SIZE = 13.3
 
 
 class StylusEvent:
@@ -19,6 +33,10 @@ class StylusEvent:
         self.pressure = pressure
         self.time = time
 
+    def scale(self, scale_factor_x, scale_factor_y):
+        self.x *= scale_factor_x
+        self.y *= scale_factor_y
+
 
 def get_args():
     parser = argparse.ArgumentParser(
@@ -26,6 +44,18 @@ def get_args():
     )
     parser.add_argument(
         "--output", type=str, default="output.csv", help="Output file location"
+    )
+    subparser = parser.add_subparsers(dest="subcommand")
+    parser_drawing = subparser.add_parser(
+        "scale-output-for-drawing-test",
+        description="Automatically scales stylus drawing events so that they"
+        "can be used in a stylus drawing test",
+    )
+    parser_drawing.add_argument(
+        "--diagonal_screen_size",
+        type=float,
+        required=True,
+        help="Diagonal screen size of DUT in inches",
     )
 
     args = parser.parse_args()
@@ -47,6 +77,13 @@ def find_stylus():
         ):
             return device
     raise RuntimeError("No stylus detected")
+
+
+def get_screen_dimensions_in_pixels(stylus):
+    abs_infos = dict(stylus.capabilities().get(evdev.ecodes.EV_ABS))
+    screen_width_pixels = abs_infos.get(evdev.ecodes.ABS_X).max
+    screen_height_pixels = abs_infos.get(evdev.ecodes.ABS_Y).max
+    return screen_height_pixels, screen_width_pixels
 
 
 def wait_for_stop_capture(stop_capture):
@@ -89,13 +126,58 @@ def capture_stylus_events(stylus, stop_capture):
 
 
 def write_stylus_events_to_file(output_file, events):
+    events_are_in_pixels = isinstance(events[0].x, int) and isinstance(
+        events[0].y, int
+    )
     with open(output_file, "w", encoding="utf-8") as f:
         f.write("x,y,pressure,time\n")
         for event in events:
-            to_write = (
-                f"{event.x},{event.y},{event.pressure},{event.time:.6f},\n"
-            )
+            if events_are_in_pixels:
+                to_write = (
+                    f"{event.x},{event.y},{event.pressure},{event.time:.6f},\n"
+                )
+            else:
+                # The x, y values in reference images are rounded to 2 decimal
+                # places.
+                to_write = (
+                    f"{event.x:.2f},{event.y:.2f},{event.pressure}"
+                    f",{event.time:.6f},\n"
+                )
             f.write(to_write)
+
+
+def scale_data_for_drawing_test(
+    stylus_events,
+    screen_height_pixels,
+    screen_width_pixels,
+    diagonal_screen_size_inches,
+):
+    diagonal_screen_size_mm = diagonal_screen_size_inches * MM_PER_INCH
+    screen_height_mm = (
+        diagonal_screen_size_mm * SCREEN_SIZE_HEIGHT_RATIO_OF_DIAGONAL
+    )
+    screen_width_mm = (
+        diagonal_screen_size_mm * SCREEN_SIZE_WIDTH_RATIO_OF_DIAGONAL
+    )
+
+    dut_screen_size_to_reference_image_screen_size_ratio = (
+        diagonal_screen_size_inches / REFERENCE_SCREEN_SIZE
+    )
+
+    # Scales pixel values to mm, and scales them as though they were taken on
+    # the same screen size as the reference image.
+    x_scale_factor = (
+        screen_width_mm
+        / screen_width_pixels
+        * dut_screen_size_to_reference_image_screen_size_ratio
+    )
+    y_scale_factor = (
+        screen_height_mm
+        / screen_height_pixels
+        * dut_screen_size_to_reference_image_screen_size_ratio
+    )
+    for stylus_event in stylus_events:
+        stylus_event.scale(x_scale_factor, y_scale_factor)
 
 
 def main():
@@ -111,6 +193,23 @@ def main():
 
     stylus_events = capture_stylus_events(stylus, stop_capture)
     wait_for_stop_capture_thread.join()
+
+    if args.subcommand == "scale-output-for-drawing-test":
+        (
+            screen_height_pixels,
+            screen_width_pixels,
+        ) = get_screen_dimensions_in_pixels(stylus)
+
+        print(
+            "Scaling output data to mm and to the reference image screen size"
+            f"({REFERENCE_SCREEN_SIZE})"
+        )
+        scale_data_for_drawing_test(
+            stylus_events,
+            screen_height_pixels,
+            screen_width_pixels,
+            args.diagonal_screen_size,
+        )
 
     write_stylus_events_to_file(args.output, stylus_events)
     print(f"Captured {len(stylus_events)} stylus events")
